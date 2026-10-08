@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f7f5ef">
+    <meta name="description" content="Des cartes simples pour réviser le grec moderne.">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" href="./icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+    <link rel="stylesheet" href="./styles.css">
+    <title>Réviser le grec</title>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="topbar">
+        <a class="brand" href="./" aria-label="Réviser le grec, accueil">
+          <span class="brand-mark" aria-hidden="true">α</span>
+          <span>Réviser le grec</span>
+        </a>
+        <div class="topbar-options">
+          <label class="mode-picker">
+            <span>Ordre</span>
+            <select id="order-mode" aria-label="Choisir l’ordre des mots">
+              <option value="all">Tous les mots</option>
+              <option value="random">Random</option>
+            </select>
+          </label>
+          <label class="mode-picker">
+            <span>Commencer par</span>
+            <select id="side-mode" aria-label="Choisir le côté affiché en premier">
+              <option value="random">Aléatoire</option>
+              <option value="recto">Grec</option>
+              <option value="verso">Anglais</option>
+            </select>
+          </label>
+        </div>
+      </header>
+
+      <section class="study" aria-label="Cartes de révision">
+        <div class="card-area">
+          <button class="flashcard" id="flashcard" type="button" aria-label="Retourner la carte">
+            <span class="card-inner" id="card-inner">
+              <span class="card-face card-front" id="face-front">
+                <span class="face-label" id="front-label">Grec · recto</span>
+                <span class="greek-word" id="greek-word" lang="el"></span>
+                <span class="pronunciation" id="pronunciation"></span>
+                <span class="tap-hint"><span aria-hidden="true">↻</span> Toucher pour retourner</span>
+              </span>
+              <span class="card-face card-back" id="face-back">
+                <span class="face-label" id="back-label">Anglais · verso</span>
+                <span class="french-word" id="french-word" lang="en"></span>
+                <span class="tap-hint"><span aria-hidden="true">↻</span> Toucher pour retourner</span>
+              </span>
+            </span>
+          </button>
+          <p class="side-caption" id="side-caption" aria-live="polite">Grec affiché</p>
+        </div>
+
+        <nav class="card-controls" aria-label="Navigation des cartes">
+          <button class="nav-button previous" id="previous" type="button" aria-label="Carte précédente"><span aria-hidden="true">←</span></button>
+          <p class="counter"><span id="card-number">—</span><span class="counter-divider">/</span><span id="card-total">—</span></p>
+          <button class="nav-button next" id="next" type="button" aria-label="Carte suivante"><span class="next-label" id="next-label" hidden>Suivant</span><span class="next-arrow" aria-hidden="true">→</span></button>
+        </nav>
+        <p class="keyboard-hint">Astuce : utilisez les flèches du clavier pour naviguer.</p>
+        <p class="load-error" id="load-error" role="alert" hidden></p>
+      </section>
+
+      <footer class="footer"><span>Grec moderne</span><span class="footer-dot" aria-hidden="true">·</span><span id="word-count">Chargement des mots…</span></footer>
+    </main>
+    <script src="./app.js" defer></script>
+  </body>
+</html>
