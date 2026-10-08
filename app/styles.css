@@ -172,6 +172,8 @@ button { -webkit-tap-highlight-color: transparent; }
 .load-error { max-width: 540px; margin: 16px 0; color: #9a4639; font-size: 13px; text-align: center; }
 .footer { display: flex; min-height: 54px; align-items: center; justify-content: center; gap: 9px; color: #a1a39a; font-size: 11px; }
 .footer-dot { color: #c1c2b9; }
+.github-link { color: var(--green); text-decoration: none; }
+.github-link:hover { color: var(--green-dark); text-decoration: underline; }
 
 @media (max-width: 580px) {
   .page-shell { width: min(100% - 32px, 520px); }

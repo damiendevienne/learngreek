@@ -31,3 +31,7 @@ les cartes et les montre une fois chacune avant de remélanger le paquet ;
 **Random** tire un mot avec remise à chaque clic sur Suivant et masque le
 compteur. Il affiche uniquement un grand bouton **Suivant**. Le mode d’ordre
 n’est pas mémorisé et revient à **Tous les mots** à chaque ouverture.
+
+## Licence
+
+Ce projet est distribué sous licence MIT. Voir [LICENSE](LICENSE).
