@@ -1,319 +1,205 @@
 const CSV_URL = '../words/grec_francais_ankidroid.csv';
 const STORAGE_KEY = 'greek-cards-side-mode';
-const RANDOM_LOOKAHEAD = 5;
-
-const elements = {
-  mode: document.querySelector('#side-mode'),
-  orderMode: document.querySelector('#order-mode'),
-  slider: document.querySelector('#flashcard-swiper'),
-  sideCaption: document.querySelector('#side-caption'),
-  number: document.querySelector('#card-number'),
-  total: document.querySelector('#card-total'),
-  wordCount: document.querySelector('#word-count'),
-  counter: document.querySelector('.counter'),
-  controls: document.querySelector('.card-controls'),
-  nextLabel: document.querySelector('#next-label'),
-  error: document.querySelector('#load-error'),
-  previous: document.querySelector('#previous'),
-  next: document.querySelector('#next'),
-};
+const ui = Object.fromEntries(Object.entries({
+  sideMode: '#side-mode', orderMode: '#order-mode', slider: '#flashcard-swiper',
+  wrapper: '#card-slides', caption: '#side-caption', number: '#card-number',
+  total: '#card-total', count: '#word-count', counter: '.counter',
+  controls: '.card-controls', nextLabel: '#next-label', error: '#load-error',
+  previous: '#previous', next: '#next',
+}).map(([key, selector]) => [key, document.querySelector(selector)]));
 
 let words = [];
-let allOrder = [];
-let displayedWordIndex = 0;
-let shownSide = 'recto';
 let swiper;
-let rebuildingSlides = false;
+let rebuilding = false;
 
-function parseCsvLine(line) {
+function csvFields(line) {
   const fields = [];
-  let value = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (character === '"') {
-      if (inQuotes && line[index + 1] === '"') {
-        value += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (character === ';' && !inQuotes) {
-      fields.push(value.trim());
-      value = '';
-    } else {
-      value += character;
-    }
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (quoted && line[i + 1] === '"') { field += '"'; i += 1; }
+      else quoted = !quoted;
+    } else if (char === ';' && !quoted) {
+      fields.push(field.trim());
+      field = '';
+    } else field += char;
   }
-  fields.push(value.trim());
+  fields.push(field.trim());
   return fields;
 }
 
-function parseCsv(csv) {
+function parseWords(csv) {
   const lines = csv.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim());
-  if (lines.length < 2) return [];
+  const headers = csvFields(lines.shift() || '').map((header) => header.toLowerCase());
+  const columns = ['grec', 'prononciation', 'english'].map((name) => headers.indexOf(name));
+  if (columns.includes(-1)) throw new Error('Colonnes Grec, Prononciation et English attendues dans le CSV.');
+  return lines.map((line) => {
+    const fields = csvFields(line);
+    return { greek: fields[columns[0]], pronunciation: fields[columns[1]], english: fields[columns[2]] };
+  }).filter((word) => word.greek && word.english);
+}
 
-  const headers = parseCsvLine(lines.shift()).map((header) => header.toLocaleLowerCase('fr'));
-  const greekColumn = headers.indexOf('grec');
-  const pronunciationColumn = headers.indexOf('prononciation');
-  const englishColumn = headers.indexOf('english') >= 0 ? headers.indexOf('english') : headers.indexOf('français');
-  if ([greekColumn, pronunciationColumn, englishColumn].some((column) => column < 0)) {
-    throw new Error('The CSV must have Grec, Prononciation and English columns.');
+function randomIndex() { return Math.floor(Math.random() * words.length); }
+function shuffle(indices) {
+  for (let i = indices.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
   }
-
-  return lines.map(parseCsvLine).map((fields) => ({
-    greek: fields[greekColumn] || '',
-    pronunciation: fields[pronunciationColumn] || '',
-    english: fields[englishColumn] || '',
-  })).filter((word) => word.greek && word.english);
+  return indices;
 }
-
-function chooseStartingSide() {
-  if (elements.mode.value === 'random') return Math.random() < 0.5 ? 'recto' : 'verso';
-  return elements.mode.value;
+function startingSide() {
+  return ui.sideMode.value === 'random'
+    ? (Math.random() < 0.5 ? 'recto' : 'verso')
+    : ui.sideMode.value;
 }
-
-function shuffle(values) {
-  for (let index = values.length - 1; index > 0; index -= 1) {
-    const otherIndex = Math.floor(Math.random() * (index + 1));
-    [values[index], values[otherIndex]] = [values[otherIndex], values[index]];
-  }
-  return values;
+function node(tag, className, text) {
+  const element = document.createElement(tag);
+  element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
 }
-
-function randomWordIndex() {
-  return Math.floor(Math.random() * words.length);
+function face(label, mainClass, text) {
+  const element = node('span', `card-face ${mainClass === 'greek-word' ? 'card-front' : 'card-back'}`);
+  const word = node('span', mainClass, text);
+  word.lang = mainClass === 'greek-word' ? 'el' : 'en';
+  element.append(node('span', 'face-label', label), word);
+  return element;
 }
-
-function createSpan(className, text, lang) {
-  const span = document.createElement('span');
-  span.className = className;
-  if (text !== undefined) span.textContent = text;
-  if (lang) span.lang = lang;
-  return span;
-}
-
-function createTapHint() {
-  const hint = createSpan('tap-hint');
-  const icon = createSpan('', '↻');
-  icon.setAttribute('aria-hidden', 'true');
-  hint.append(icon, document.createTextNode(' Toucher pour retourner'));
-  return hint;
-}
-
-function createSlide(wordIndex) {
+function slide(wordIndex, side = startingSide()) {
   const word = words[wordIndex];
-  const slide = document.createElement('div');
-  slide.className = 'swiper-slide';
-  slide.dataset.wordIndex = String(wordIndex);
-
-  const card = document.createElement('button');
-  card.className = 'flashcard';
+  const element = node('div', 'swiper-slide');
+  element.dataset.word = String(wordIndex);
+  element.dataset.side = side;
+  const card = node('button', 'flashcard');
   card.type = 'button';
-  card.setAttribute('aria-label', `${word.greek}, ${word.english}. Touch to flip the card.`);
-
-  const inner = createSpan('card-inner');
-  const front = createSpan('card-face card-front');
-  front.append(
-    createSpan('face-label', 'Grec · recto'),
-    createSpan('greek-word', word.greek, 'el'),
-  );
-  const pronunciation = createSpan('pronunciation', word.pronunciation);
-  pronunciation.hidden = !word.pronunciation;
-  front.append(pronunciation, createTapHint());
-
-  const back = createSpan('card-face card-back');
-  back.append(
-    createSpan('face-label', 'Anglais · verso'),
-    createSpan('english-word', word.english, 'en'),
-    createTapHint(),
-  );
-
+  card.setAttribute('aria-label', 'Retourner la carte');
+  const inner = node('span', `card-inner${side === 'verso' ? ' is-flipped' : ''}`);
+  const front = face('Grec · recto', 'greek-word', word.greek);
+  if (word.pronunciation) front.append(node('span', 'pronunciation', word.pronunciation));
+  const back = face('Anglais · verso', 'english-word', word.english);
+  for (const sideFace of [front, back]) sideFace.append(node('span', 'tap-hint', '↻  Toucher pour retourner'));
   inner.append(front, back);
   card.append(inner);
-  slide.append(card);
-  return slide;
+  element.append(card);
+  return element;
 }
 
-function setSlideSide(slide, side) {
-  if (!slide) return;
-  const inner = slide.querySelector('.card-inner');
-  inner.getAnimations().forEach((animation) => animation.cancel());
-  inner.classList.toggle('is-flipped', side === 'verso');
-  shownSide = side;
-  elements.sideCaption.textContent = side === 'recto' ? 'Grec affiché' : 'Anglais affiché';
+function activeSlide() { return swiper?.slides[swiper.activeIndex]; }
+function updateDisplay() {
+  const active = activeSlide();
+  if (!active) return;
+  const random = ui.orderMode.value === 'random';
+  ui.caption.textContent = active.dataset.side === 'verso' ? 'Anglais affiché' : 'Grec affiché';
+  ui.number.textContent = String(swiper.activeIndex + 1);
+  ui.total.textContent = String(words.length);
+  ui.counter.hidden = random;
+  ui.previous.hidden = random;
+  ui.nextLabel.hidden = !random;
+  ui.controls.classList.toggle('random-mode', random);
 }
-
-function updateControls() {
-  const randomMode = elements.orderMode.value === 'random';
-  elements.counter.hidden = randomMode;
-  elements.previous.hidden = randomMode;
-  elements.controls.classList.toggle('random-mode', randomMode);
-  elements.nextLabel.hidden = !randomMode;
+function showSlides(slides, index = 0) {
+  rebuilding = true;
+  ui.wrapper.replaceChildren(...slides);
   if (swiper) {
-    swiper.params.oneWayMovement = randomMode;
-    swiper.params.rewind = !randomMode;
-    swiper.allowSlidePrev = !randomMode;
-  }
-}
-
-function updateActiveSlide(resetSide = true, preservedSide = null) {
-  if (!swiper) return;
-  const activeSlide = swiper.slides[swiper.activeIndex];
-  if (!activeSlide) return;
-
-  displayedWordIndex = Number(activeSlide.dataset.wordIndex);
-  if (resetSide) setSlideSide(activeSlide, preservedSide || chooseStartingSide());
-
-  const randomMode = elements.orderMode.value === 'random';
-  elements.number.textContent = String(swiper.activeIndex + 1);
-  elements.total.textContent = String(words.length);
-  elements.previous.hidden = randomMode;
-  elements.counter.hidden = randomMode;
-}
-
-function replaceSlides(wordIndices, preservedSide = null) {
-  if (!swiper) return;
-  rebuildingSlides = true;
-  swiper.removeAllSlides();
-  swiper.appendSlide(wordIndices.map(createSlide));
-  swiper.update();
-  swiper.slideTo(0, 0, false);
-  updateControls();
-  updateActiveSlide(true, preservedSide);
-  rebuildingSlides = false;
-}
-
-function startAllWords(currentWordIndex = null) {
-  allOrder = currentWordIndex === null
-    ? shuffle(words.map((_, index) => index))
-    : [currentWordIndex, ...shuffle(words.map((_, index) => index).filter((index) => index !== currentWordIndex))];
-  replaceSlides(allOrder);
-}
-
-function startRandomMode(currentWordIndex = displayedWordIndex, preservedSide = null) {
-  const nextIndices = Array.from({ length: RANDOM_LOOKAHEAD }, randomWordIndex);
-  replaceSlides([currentWordIndex, ...nextIndices], preservedSide);
-}
-
-function configureSwiper() {
-  swiper = new Swiper(elements.slider, {
-    effect: 'creative',
-    slidesPerView: 1,
-    speed: 650,
-    grabCursor: true,
-    rewind: true,
-    oneWayMovement: false,
-    preventInteractionOnTransition: true,
-    creativeEffect: {
-      prev: { shadow: true, translate: ['-120%', 0, -500] },
-      next: { shadow: true, translate: ['120%', 0, -500] },
-      limitProgress: 1,
-      perspective: true,
-    },
-    on: {
-      slideChangeTransitionStart() {
-        if (!rebuildingSlides) updateActiveSlide();
-      },
-      slideChangeTransitionEnd() {
-        if (rebuildingSlides || elements.orderMode.value !== 'random') return;
-
-        if (swiper.activeIndex >= RANDOM_LOOKAHEAD) {
-          startRandomMode(displayedWordIndex, shownSide);
-        } else {
-          swiper.appendSlide(createSlide(randomWordIndex()));
-          swiper.update();
-        }
-      },
-    },
-  });
-}
-
-function navigate(direction) {
-  if (!swiper || swiper.animating) return;
-  if (elements.orderMode.value === 'random') {
-    swiper.slideNext();
-  } else if (direction < 0) {
-    swiper.slidePrev();
+    swiper.update();
+    swiper.slideTo(index, 0, false);
   } else {
-    swiper.slideNext();
+    swiper = new Swiper(ui.slider, {
+      initialSlide: index, speed: 420, rewind: true, preventInteractionOnTransition: true,
+      on: {
+        slideChange() { if (!rebuilding) updateDisplay(); },
+        slideChangeTransitionEnd() {
+          if (rebuilding) return;
+          const active = activeSlide();
+          if (ui.orderMode.value === 'random') {
+            showSlides([slide(randomIndex()), slide(Number(active.dataset.word), active.dataset.side), slide(randomIndex())], 1);
+          } else {
+            const previous = swiper.slides[swiper.previousIndex];
+            if (previous && previous !== active) {
+              previous.dataset.side = startingSide();
+              previous.querySelector('.card-inner').classList.toggle('is-flipped', previous.dataset.side === 'verso');
+            }
+            if (swiper.activeIndex === 0 && swiper.previousIndex === words.length - 1) {
+              const remaining = shuffle(Array.from(swiper.slides).slice(1).map((item) => Number(item.dataset.word)));
+              showSlides([active, ...remaining.map((word) => slide(word))]);
+            }
+          }
+        },
+      },
+    });
+  }
+  updateDisplay();
+  rebuilding = false;
+}
+function startMode(currentWord = null, currentSide = null) {
+  if (ui.orderMode.value === 'random') {
+    const middle = currentWord ?? randomIndex();
+    showSlides([slide(randomIndex()), slide(middle, currentSide || startingSide()), slide(randomIndex())], 1);
+  } else {
+    const indices = shuffle(words.map((_, index) => index));
+    if (currentWord !== null) indices.unshift(indices.splice(indices.indexOf(currentWord), 1)[0]);
+    showSlides(indices.map((index) => slide(index, index === currentWord ? currentSide || startingSide() : startingSide())));
   }
 }
 
-elements.slider.addEventListener('click', (event) => {
+ui.slider.addEventListener('click', (event) => {
   const card = event.target.closest('.flashcard');
-  if (!card || !card.closest('.swiper-slide-active')) return;
-
-  const inner = card.querySelector('.card-inner');
-  const fromTransform = getComputedStyle(inner).transform;
-  inner.getAnimations().forEach((animation) => animation.cancel());
-  shownSide = shownSide === 'recto' ? 'verso' : 'recto';
-  inner.classList.toggle('is-flipped', shownSide === 'verso');
-  const toTransform = shownSide === 'recto' ? 'rotateY(0deg)' : 'rotateY(180deg)';
-  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    inner.animate(
-      [{ transform: fromTransform }, { transform: toTransform }],
-      { duration: 650, easing: 'cubic-bezier(.2,.72,.22,1)' },
-    );
-  }
-  elements.sideCaption.textContent = shownSide === 'recto' ? 'Grec affiché' : 'Anglais affiché';
+  const active = activeSlide();
+  if (!card || !active?.contains(card)) return;
+  active.dataset.side = active.dataset.side === 'recto' ? 'verso' : 'recto';
+  card.querySelector('.card-inner').classList.toggle('is-flipped', active.dataset.side === 'verso');
+  updateDisplay();
 });
-
-elements.previous.addEventListener('click', () => navigate(-1));
-elements.next.addEventListener('click', () => navigate(1));
-elements.orderMode.addEventListener('change', () => {
+ui.previous.addEventListener('click', () => swiper?.slidePrev());
+ui.next.addEventListener('click', () => swiper?.slideNext());
+ui.orderMode.addEventListener('change', () => {
   if (!words.length) return;
-  const currentWord = displayedWordIndex;
-  const currentSide = shownSide;
-  if (elements.orderMode.value === 'random') {
-    startRandomMode(currentWord, currentSide);
-  } else {
-    startAllWords(currentWord);
-  }
+  const active = activeSlide();
+  startMode(Number(active.dataset.word), active.dataset.side);
 });
-elements.mode.addEventListener('change', () => {
-  localStorage.setItem(STORAGE_KEY, elements.mode.value);
-  updateActiveSlide(true);
+ui.sideMode.addEventListener('change', () => {
+  localStorage.setItem(STORAGE_KEY, ui.sideMode.value);
+  if (!swiper) return;
+  swiper.slides.forEach((item) => {
+    item.dataset.side = startingSide();
+    item.querySelector('.card-inner').classList.toggle('is-flipped', item.dataset.side === 'verso');
+  });
+  updateDisplay();
 });
-
 document.addEventListener('keydown', (event) => {
-  if (event.altKey || event.ctrlKey || event.metaKey || event.target instanceof HTMLSelectElement) return;
-  if (event.key === 'ArrowLeft') navigate(-1);
-  if (event.key === 'ArrowRight') navigate(1);
+  if (event.altKey || event.ctrlKey || event.metaKey || /^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) return;
+  if (event.key === 'ArrowLeft') {
+    if (ui.orderMode.value === 'random') swiper?.slideNext();
+    else swiper?.slidePrev();
+  }
+  if (event.key === 'ArrowRight') swiper?.slideNext();
   if (event.key === ' ' && !(event.target instanceof HTMLButtonElement)) {
     event.preventDefault();
-    elements.slider.querySelector('.swiper-slide-active .flashcard')?.click();
+    activeSlide()?.querySelector('.flashcard').click();
   }
 });
 
 async function loadWords() {
   try {
     const response = await fetch(CSV_URL, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`Le fichier de mots est introuvable (${response.status}).`);
-    words = parseCsv(await response.text());
-    if (!words.length) throw new Error('Aucun mot trouvé dans le fichier CSV.');
-
-    const savedMode = localStorage.getItem(STORAGE_KEY);
-    if (['random', 'recto', 'verso'].includes(savedMode)) elements.mode.value = savedMode;
-    elements.orderMode.value = 'all';
-    elements.wordCount.textContent = `${words.length} mots`;
-    configureSwiper();
-    startAllWords();
+    if (!response.ok) throw new Error(`Fichier de mots introuvable (${response.status}).`);
+    words = parseWords(await response.text());
+    if (!words.length) throw new Error('Aucun mot trouvé dans le CSV.');
+    const savedSide = localStorage.getItem(STORAGE_KEY);
+    if (['random', 'recto', 'verso'].includes(savedSide)) ui.sideMode.value = savedSide;
+    ui.count.textContent = `${words.length} mots`;
+    startMode();
   } catch (error) {
-    if (location.protocol === 'file:') {
-      elements.error.textContent = 'Le site est ouvert comme fichier local. Le navigateur bloque le chargement du CSV : ouvrez le site publié sur GitHub Pages ou lancez un serveur local depuis la racine du dépôt (python3 -m http.server 8000), puis ouvrez http://localhost:8000/app/. ';
-    } else {
-      const csvUrl = new URL(CSV_URL, location.href);
-      elements.error.textContent = `${error.message} Impossible de charger ${csvUrl.pathname}. Vérifiez que le fichier words/grec_francais_ankidroid.csv est publié à côté du site.`;
-    }
-    elements.error.hidden = false;
-    elements.wordCount.textContent = 'Mots indisponibles';
+    ui.error.textContent = location.protocol === 'file:'
+      ? 'Ouvrez le site publié ou lancez un serveur local depuis la racine du dépôt : python3 -m http.server 8000.'
+      : `${error.message} Vérifiez que words/grec_francais_ankidroid.csv est publié.`;
+    ui.error.hidden = false;
+    ui.count.textContent = 'Mots indisponibles';
   }
 }
-
 loadWords();
-
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
 }
