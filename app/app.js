@@ -169,7 +169,7 @@ elements.card.addEventListener('pointermove', (event) => {
   const deltaY = event.clientY - swipeStart.y;
   if (Math.abs(deltaX) < 8 || Math.abs(deltaX) < Math.abs(deltaY)) return;
   elements.card.style.transform = `translateX(${deltaX * 0.28}px) rotate(${deltaX * 0.012}deg)`;
-  elements.card.style.opacity = String(1 - Math.min(Math.abs(deltaX) / 900, 0.12));
+  elements.card.style.opacity = String(1 - Math.min(Math.abs(deltaX) / 1500, 0.04));
 });
 
 elements.card.addEventListener('pointerup', (event) => {
@@ -196,21 +196,25 @@ elements.card.addEventListener('pointerup', (event) => {
   const fromOpacity = getComputedStyle(elements.card).opacity;
   elements.card.style.transform = '';
   elements.card.style.opacity = '';
+  const cardRect = elements.card.getBoundingClientRect();
+  const exitDistance = swipeDirection > 0
+    ? window.innerWidth - cardRect.left + 32
+    : -cardRect.right - 32;
   const exitAnimation = elements.card.animate(
     [
       { transform: fromTransform, opacity: fromOpacity },
-      { transform: `translateX(${swipeDirection * 86}px) rotate(${swipeDirection * 2}deg)`, opacity: 0.68 },
+      { transform: `translateX(${exitDistance}px) rotate(${swipeDirection * 4}deg)`, opacity: 0.98 },
     ],
-    { duration: 145, easing: 'ease-in' },
+    { duration: 240, easing: 'cubic-bezier(.35,.05,.8,.3)' },
   );
   exitAnimation.onfinish = () => {
     moveCard(navigationDirection);
     elements.card.animate(
       [
-        { transform: `translateX(${-swipeDirection * 34}px) rotate(${-swipeDirection}deg)`, opacity: 0.78 },
+        { transform: `translateX(${-exitDistance}px) rotate(${-swipeDirection * 4}deg)`, opacity: 1 },
         { transform: 'none', opacity: 1 },
       ],
-      { duration: 190, easing: 'ease-out' },
+      { duration: 270, easing: 'cubic-bezier(.16,.72,.24,1)' },
     );
   };
 });

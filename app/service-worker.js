@@ -1,4 +1,4 @@
-const CACHE_NAME = 'greek-cards-v8';
+const CACHE_NAME = 'greek-cards-v9';
 const APP_FILES = [
   './',
   './index.html',
