@@ -32,6 +32,11 @@ les cartes et les montre une fois chacune avant de remélanger le paquet ;
 compteur. Il affiche uniquement un grand bouton **Suivant**. Le mode d’ordre
 n’est pas mémorisé et revient à **Tous les mots** à chaque ouverture.
 
+L’animation de navigation utilise [Swiper](https://swiperjs.com/) et son effet
+Creative. Les fichiers Swiper sont inclus localement dans `app/vendor/`, donc
+ils restent disponibles hors ligne. La licence de Swiper est dans
+[`app/vendor/LICENSE-SWIPER`](app/vendor/LICENSE-SWIPER).
+
 ## Licence
 
 Ce projet est distribué sous licence MIT. Voir [LICENSE](LICENSE).

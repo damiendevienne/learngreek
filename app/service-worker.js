@@ -1,4 +1,4 @@
-const CACHE_NAME = 'greek-cards-v9';
+const CACHE_NAME = 'greek-cards-v10';
 const APP_FILES = [
   './',
   './index.html',
@@ -8,6 +8,8 @@ const APP_FILES = [
   './icon.svg',
   './icon-192.png',
   './icon-512.png',
+  './vendor/swiper-bundle.min.js',
+  './vendor/swiper-bundle.min.css',
   '../words/grec_francais_ankidroid.csv',
 ];
 const WORDS_PATH = '/words/grec_francais_ankidroid.csv';

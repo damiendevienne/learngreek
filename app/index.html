@@ -8,6 +8,7 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" href="./icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="./icon-192.png">
+    <link rel="stylesheet" href="./vendor/swiper-bundle.min.css">
     <link rel="stylesheet" href="./styles.css">
     <title>Réviser le grec</title>
   </head>
@@ -39,21 +40,9 @@
 
       <section class="study" aria-label="Cartes de révision">
         <div class="card-area">
-          <button class="flashcard" id="flashcard" type="button" aria-label="Retourner la carte">
-            <span class="card-inner" id="card-inner">
-              <span class="card-face card-front" id="face-front">
-                <span class="face-label" id="front-label">Grec · recto</span>
-                <span class="greek-word" id="greek-word" lang="el"></span>
-                <span class="pronunciation" id="pronunciation"></span>
-                <span class="tap-hint"><span aria-hidden="true">↻</span> Toucher pour retourner</span>
-              </span>
-              <span class="card-face card-back" id="face-back">
-                <span class="face-label" id="back-label">Anglais · verso</span>
-                <span class="french-word" id="french-word" lang="en"></span>
-                <span class="tap-hint"><span aria-hidden="true">↻</span> Toucher pour retourner</span>
-              </span>
-            </span>
-          </button>
+          <div class="swiper flashcard-swiper" id="flashcard-swiper" aria-label="Cartes de vocabulaire">
+            <div class="swiper-wrapper" id="card-slides"></div>
+          </div>
           <p class="side-caption" id="side-caption" aria-live="polite">Grec affiché</p>
         </div>
 
@@ -68,6 +57,7 @@
 
       <footer class="footer"><span>Cartes grecques</span><span class="footer-dot" aria-hidden="true">·</span><span id="word-count">Chargement des mots…</span><span class="footer-dot" aria-hidden="true">·</span><a class="github-link" href="https://github.com/damiendevienne/learngreek" target="_blank" rel="noopener noreferrer">Code sur GitHub ↗</a></footer>
     </main>
+    <script src="./vendor/swiper-bundle.min.js" defer></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

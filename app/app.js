@@ -1,15 +1,11 @@
 const CSV_URL = '../words/grec_francais_ankidroid.csv';
 const STORAGE_KEY = 'greek-cards-side-mode';
+const RANDOM_LOOKAHEAD = 5;
+
 const elements = {
   mode: document.querySelector('#side-mode'),
   orderMode: document.querySelector('#order-mode'),
-  card: document.querySelector('#flashcard'),
-  inner: document.querySelector('#card-inner'),
-  greek: document.querySelector('#greek-word'),
-  pronunciation: document.querySelector('#pronunciation'),
-  french: document.querySelector('#french-word'),
-  frontLabel: document.querySelector('#front-label'),
-  backLabel: document.querySelector('#back-label'),
+  slider: document.querySelector('#flashcard-swiper'),
   sideCaption: document.querySelector('#side-caption'),
   number: document.querySelector('#card-number'),
   total: document.querySelector('#card-total'),
@@ -24,12 +20,10 @@ const elements = {
 
 let words = [];
 let allOrder = [];
-let allPosition = 0;
-let randomWordIndex = 0;
 let displayedWordIndex = 0;
 let shownSide = 'recto';
-let swipeStart = null;
-let suppressCardClickUntil = 0;
+let swiper;
+let rebuildingSlides = false;
 
 function parseCsvLine(line) {
   const fields = [];
@@ -71,14 +65,12 @@ function parseCsv(csv) {
   return lines.map(parseCsvLine).map((fields) => ({
     greek: fields[greekColumn] || '',
     pronunciation: fields[pronunciationColumn] || '',
-    french: fields[englishColumn] || '',
-  })).filter((word) => word.greek && word.french);
+    english: fields[englishColumn] || '',
+  })).filter((word) => word.greek && word.english);
 }
 
 function chooseStartingSide() {
-  if (elements.mode.value === 'random') {
-    return Math.random() < 0.5 ? 'recto' : 'verso';
-  }
+  if (elements.mode.value === 'random') return Math.random() < 0.5 ? 'recto' : 'verso';
   return elements.mode.value;
 }
 
@@ -90,153 +82,177 @@ function shuffle(values) {
   return values;
 }
 
-function currentWordIndex() {
-  return elements.orderMode.value === 'random'
-    ? randomWordIndex
-    : allOrder[allPosition];
+function randomWordIndex() {
+  return Math.floor(Math.random() * words.length);
 }
 
-function renderCard() {
-  const wordIndex = currentWordIndex();
+function createSpan(className, text, lang) {
+  const span = document.createElement('span');
+  span.className = className;
+  if (text !== undefined) span.textContent = text;
+  if (lang) span.lang = lang;
+  return span;
+}
+
+function createTapHint() {
+  const hint = createSpan('tap-hint');
+  const icon = createSpan('', '↻');
+  icon.setAttribute('aria-hidden', 'true');
+  hint.append(icon, document.createTextNode(' Toucher pour retourner'));
+  return hint;
+}
+
+function createSlide(wordIndex) {
   const word = words[wordIndex];
-  if (!word) return;
+  const slide = document.createElement('div');
+  slide.className = 'swiper-slide';
+  slide.dataset.wordIndex = String(wordIndex);
 
-  displayedWordIndex = wordIndex;
-  shownSide = chooseStartingSide();
-  elements.greek.textContent = word.greek;
-  elements.pronunciation.textContent = word.pronunciation;
-  elements.pronunciation.hidden = !word.pronunciation;
-  elements.french.textContent = word.french;
-  elements.inner.getAnimations().forEach((animation) => animation.cancel());
-  elements.inner.classList.toggle('is-flipped', shownSide === 'verso');
-  elements.sideCaption.textContent = shownSide === 'recto' ? 'Grec affiché' : 'Anglais affiché';
-  const isRandomMode = elements.orderMode.value === 'random';
-  elements.number.textContent = String(allPosition + 1);
+  const card = document.createElement('button');
+  card.className = 'flashcard';
+  card.type = 'button';
+  card.setAttribute('aria-label', `${word.greek}, ${word.english}. Touch to flip the card.`);
+
+  const inner = createSpan('card-inner');
+  const front = createSpan('card-face card-front');
+  front.append(
+    createSpan('face-label', 'Grec · recto'),
+    createSpan('greek-word', word.greek, 'el'),
+  );
+  const pronunciation = createSpan('pronunciation', word.pronunciation);
+  pronunciation.hidden = !word.pronunciation;
+  front.append(pronunciation, createTapHint());
+
+  const back = createSpan('card-face card-back');
+  back.append(
+    createSpan('face-label', 'Anglais · verso'),
+    createSpan('english-word', word.english, 'en'),
+    createTapHint(),
+  );
+
+  inner.append(front, back);
+  card.append(inner);
+  slide.append(card);
+  return slide;
+}
+
+function setSlideSide(slide, side) {
+  if (!slide) return;
+  const inner = slide.querySelector('.card-inner');
+  inner.getAnimations().forEach((animation) => animation.cancel());
+  inner.classList.toggle('is-flipped', side === 'verso');
+  shownSide = side;
+  elements.sideCaption.textContent = side === 'recto' ? 'Grec affiché' : 'Anglais affiché';
+}
+
+function updateControls() {
+  const randomMode = elements.orderMode.value === 'random';
+  elements.counter.hidden = randomMode;
+  elements.previous.hidden = randomMode;
+  elements.controls.classList.toggle('random-mode', randomMode);
+  elements.nextLabel.hidden = !randomMode;
+  if (swiper) {
+    swiper.params.oneWayMovement = randomMode;
+    swiper.params.rewind = !randomMode;
+    swiper.allowSlidePrev = !randomMode;
+  }
+}
+
+function updateActiveSlide(resetSide = true, preservedSide = null) {
+  if (!swiper) return;
+  const activeSlide = swiper.slides[swiper.activeIndex];
+  if (!activeSlide) return;
+
+  displayedWordIndex = Number(activeSlide.dataset.wordIndex);
+  if (resetSide) setSlideSide(activeSlide, preservedSide || chooseStartingSide());
+
+  const randomMode = elements.orderMode.value === 'random';
+  elements.number.textContent = String(swiper.activeIndex + 1);
   elements.total.textContent = String(words.length);
-  elements.counter.hidden = isRandomMode;
-  elements.previous.hidden = isRandomMode;
-  elements.controls.classList.toggle('random-mode', isRandomMode);
-  elements.nextLabel.hidden = !isRandomMode;
-  elements.card.setAttribute('aria-label', `${word.greek}, ${word.french}. Toucher pour retourner la carte.`);
+  elements.previous.hidden = randomMode;
+  elements.counter.hidden = randomMode;
 }
 
-function moveCard(direction) {
+function replaceSlides(wordIndices, preservedSide = null) {
+  if (!swiper) return;
+  rebuildingSlides = true;
+  swiper.removeAllSlides();
+  swiper.appendSlide(wordIndices.map(createSlide));
+  swiper.update();
+  swiper.slideTo(0, 0, false);
+  updateControls();
+  updateActiveSlide(true, preservedSide);
+  rebuildingSlides = false;
+}
+
+function startAllWords(currentWordIndex = null) {
+  allOrder = currentWordIndex === null
+    ? shuffle(words.map((_, index) => index))
+    : [currentWordIndex, ...shuffle(words.map((_, index) => index).filter((index) => index !== currentWordIndex))];
+  replaceSlides(allOrder);
+}
+
+function startRandomMode(currentWordIndex = displayedWordIndex, preservedSide = null) {
+  const nextIndices = Array.from({ length: RANDOM_LOOKAHEAD }, randomWordIndex);
+  replaceSlides([currentWordIndex, ...nextIndices], preservedSide);
+}
+
+function configureSwiper() {
+  swiper = new Swiper(elements.slider, {
+    effect: 'creative',
+    slidesPerView: 1,
+    speed: 650,
+    grabCursor: true,
+    rewind: true,
+    oneWayMovement: false,
+    preventInteractionOnTransition: true,
+    creativeEffect: {
+      prev: { shadow: true, translate: ['-120%', 0, -500] },
+      next: { shadow: true, translate: ['120%', 0, -500] },
+      limitProgress: 1,
+      perspective: true,
+    },
+    on: {
+      slideChangeTransitionStart() {
+        if (!rebuildingSlides) updateActiveSlide();
+      },
+      slideChangeTransitionEnd() {
+        if (rebuildingSlides || elements.orderMode.value !== 'random') return;
+
+        if (swiper.activeIndex >= RANDOM_LOOKAHEAD) {
+          startRandomMode(displayedWordIndex, shownSide);
+        } else {
+          swiper.appendSlide(createSlide(randomWordIndex()));
+          swiper.update();
+        }
+      },
+    },
+  });
+}
+
+function navigate(direction) {
+  if (!swiper || swiper.animating) return;
   if (elements.orderMode.value === 'random') {
-    if (direction < 0) return;
-    randomWordIndex = Math.floor(Math.random() * words.length);
+    swiper.slideNext();
   } else if (direction < 0) {
-    allPosition = (allPosition - 1 + allOrder.length) % allOrder.length;
-  } else if (allPosition === allOrder.length - 1) {
-    const previousWordIndex = currentWordIndex();
-    allOrder = shuffle(words.map((_, index) => index));
-    if (allOrder.length > 1 && allOrder[0] === previousWordIndex) {
-      const swapIndex = 1 + Math.floor(Math.random() * (allOrder.length - 1));
-      [allOrder[0], allOrder[swapIndex]] = [allOrder[swapIndex], allOrder[0]];
-    }
-    allPosition = 0;
+    swiper.slidePrev();
   } else {
-    allPosition += 1;
+    swiper.slideNext();
   }
-  renderCard();
 }
 
-function settleCardAfterDrag() {
-  if (!elements.card.style.transform) return;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    elements.card.style.transform = '';
-    elements.card.style.opacity = '';
-    return;
-  }
-  const fromTransform = getComputedStyle(elements.card).transform;
-  const fromOpacity = getComputedStyle(elements.card).opacity;
-  elements.card.style.transform = '';
-  elements.card.style.opacity = '';
-  elements.card.animate(
-    [{ transform: fromTransform, opacity: fromOpacity }, { transform: 'none', opacity: 1 }],
-    { duration: 160, easing: 'ease-out' },
-  );
-}
+elements.slider.addEventListener('click', (event) => {
+  const card = event.target.closest('.flashcard');
+  if (!card || !card.closest('.swiper-slide-active')) return;
 
-elements.card.addEventListener('pointerdown', (event) => {
-  if (event.pointerType === 'mouse') return;
-  swipeStart = { x: event.clientX, y: event.clientY };
-  elements.card.setPointerCapture(event.pointerId);
-});
-
-elements.card.addEventListener('pointermove', (event) => {
-  if (!swipeStart || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const deltaX = event.clientX - swipeStart.x;
-  const deltaY = event.clientY - swipeStart.y;
-  if (Math.abs(deltaX) < 8 || Math.abs(deltaX) < Math.abs(deltaY)) return;
-  elements.card.style.transform = `translateX(${deltaX * 0.28}px) rotate(${deltaX * 0.012}deg)`;
-  elements.card.style.opacity = String(1 - Math.min(Math.abs(deltaX) / 1500, 0.04));
-});
-
-elements.card.addEventListener('pointerup', (event) => {
-  if (!swipeStart) return;
-  const deltaX = event.clientX - swipeStart.x;
-  const deltaY = event.clientY - swipeStart.y;
-  swipeStart = null;
-
-  if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
-    settleCardAfterDrag();
-    return;
-  }
-
-  suppressCardClickUntil = Date.now() + 500;
-  const swipeDirection = Math.sign(deltaX);
-  const navigationDirection = elements.orderMode.value === 'random' ? 1 : (deltaX < 0 ? 1 : -1);
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    elements.card.style.transform = '';
-    elements.card.style.opacity = '';
-    moveCard(navigationDirection);
-    return;
-  }
-  const fromTransform = getComputedStyle(elements.card).transform;
-  const fromOpacity = getComputedStyle(elements.card).opacity;
-  elements.card.style.transform = '';
-  elements.card.style.opacity = '';
-  const cardRect = elements.card.getBoundingClientRect();
-  const exitDistance = swipeDirection > 0
-    ? window.innerWidth - cardRect.left + 32
-    : -cardRect.right - 32;
-  const exitAnimation = elements.card.animate(
-    [
-      { transform: fromTransform, opacity: fromOpacity },
-      { transform: `translateX(${exitDistance}px) rotate(${swipeDirection * 4}deg)`, opacity: 0.98 },
-    ],
-    { duration: 240, easing: 'cubic-bezier(.35,.05,.8,.3)' },
-  );
-  exitAnimation.onfinish = () => {
-    moveCard(navigationDirection);
-    elements.card.animate(
-      [
-        { transform: `translateX(${-exitDistance}px) rotate(${-swipeDirection * 4}deg)`, opacity: 1 },
-        { transform: 'none', opacity: 1 },
-      ],
-      { duration: 270, easing: 'cubic-bezier(.16,.72,.24,1)' },
-    );
-  };
-});
-
-elements.card.addEventListener('pointercancel', () => {
-  swipeStart = null;
-  settleCardAfterDrag();
-});
-
-elements.card.addEventListener('click', (event) => {
-  if (Date.now() < suppressCardClickUntil) {
-    event.preventDefault();
-    return;
-  }
-  if (!words.length) return;
-  const fromTransform = getComputedStyle(elements.inner).transform;
-  elements.inner.getAnimations().forEach((animation) => animation.cancel());
-  elements.inner.classList.toggle('is-flipped');
+  const inner = card.querySelector('.card-inner');
+  const fromTransform = getComputedStyle(inner).transform;
+  inner.getAnimations().forEach((animation) => animation.cancel());
   shownSide = shownSide === 'recto' ? 'verso' : 'recto';
+  inner.classList.toggle('is-flipped', shownSide === 'verso');
   const toTransform = shownSide === 'recto' ? 'rotateY(0deg)' : 'rotateY(180deg)';
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    elements.inner.animate(
+    inner.animate(
       [{ transform: fromTransform }, { transform: toTransform }],
       { duration: 650, easing: 'cubic-bezier(.2,.72,.22,1)' },
     );
@@ -244,29 +260,30 @@ elements.card.addEventListener('click', (event) => {
   elements.sideCaption.textContent = shownSide === 'recto' ? 'Grec affiché' : 'Anglais affiché';
 });
 
-elements.previous.addEventListener('click', () => moveCard(-1));
-elements.next.addEventListener('click', () => moveCard(1));
+elements.previous.addEventListener('click', () => navigate(-1));
+elements.next.addEventListener('click', () => navigate(1));
 elements.orderMode.addEventListener('change', () => {
+  if (!words.length) return;
+  const currentWord = displayedWordIndex;
+  const currentSide = shownSide;
   if (elements.orderMode.value === 'random') {
-    randomWordIndex = displayedWordIndex;
+    startRandomMode(currentWord, currentSide);
   } else {
-    allOrder = [displayedWordIndex, ...shuffle(words.map((_, index) => index).filter((index) => index !== displayedWordIndex))];
-    allPosition = 0;
+    startAllWords(currentWord);
   }
-  renderCard();
 });
 elements.mode.addEventListener('change', () => {
   localStorage.setItem(STORAGE_KEY, elements.mode.value);
-  renderCard();
+  updateActiveSlide(true);
 });
 
 document.addEventListener('keydown', (event) => {
   if (event.altKey || event.ctrlKey || event.metaKey || event.target instanceof HTMLSelectElement) return;
-  if (event.key === 'ArrowLeft') moveCard(-1);
-  if (event.key === 'ArrowRight') moveCard(1);
+  if (event.key === 'ArrowLeft') navigate(-1);
+  if (event.key === 'ArrowRight') navigate(1);
   if (event.key === ' ' && !(event.target instanceof HTMLButtonElement)) {
     event.preventDefault();
-    elements.card.click();
+    elements.slider.querySelector('.swiper-slide-active .flashcard')?.click();
   }
 });
 
@@ -280,10 +297,9 @@ async function loadWords() {
     const savedMode = localStorage.getItem(STORAGE_KEY);
     if (['random', 'recto', 'verso'].includes(savedMode)) elements.mode.value = savedMode;
     elements.orderMode.value = 'all';
-    allOrder = shuffle(words.map((_, index) => index));
-    elements.total.textContent = String(words.length);
     elements.wordCount.textContent = `${words.length} mots`;
-    renderCard();
+    configureSwiper();
+    startAllWords();
   } catch (error) {
     if (location.protocol === 'file:') {
       elements.error.textContent = 'Le site est ouvert comme fichier local. Le navigateur bloque le chargement du CSV : ouvrez le site publié sur GitHub Pages ou lancez un serveur local depuis la racine du dépôt (python3 -m http.server 8000), puis ouvrez http://localhost:8000/app/. ';
