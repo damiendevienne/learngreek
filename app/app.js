@@ -140,10 +140,36 @@ function moveCard(direction) {
   renderCard();
 }
 
+function settleCardAfterDrag() {
+  if (!elements.card.style.transform) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    elements.card.style.transform = '';
+    elements.card.style.opacity = '';
+    return;
+  }
+  const fromTransform = getComputedStyle(elements.card).transform;
+  const fromOpacity = getComputedStyle(elements.card).opacity;
+  elements.card.style.transform = '';
+  elements.card.style.opacity = '';
+  elements.card.animate(
+    [{ transform: fromTransform, opacity: fromOpacity }, { transform: 'none', opacity: 1 }],
+    { duration: 160, easing: 'ease-out' },
+  );
+}
+
 elements.card.addEventListener('pointerdown', (event) => {
   if (event.pointerType === 'mouse') return;
   swipeStart = { x: event.clientX, y: event.clientY };
   elements.card.setPointerCapture(event.pointerId);
+});
+
+elements.card.addEventListener('pointermove', (event) => {
+  if (!swipeStart || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const deltaX = event.clientX - swipeStart.x;
+  const deltaY = event.clientY - swipeStart.y;
+  if (Math.abs(deltaX) < 8 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+  elements.card.style.transform = `translateX(${deltaX * 0.28}px) rotate(${deltaX * 0.012}deg)`;
+  elements.card.style.opacity = String(1 - Math.min(Math.abs(deltaX) / 900, 0.12));
 });
 
 elements.card.addEventListener('pointerup', (event) => {
@@ -152,17 +178,46 @@ elements.card.addEventListener('pointerup', (event) => {
   const deltaY = event.clientY - swipeStart.y;
   swipeStart = null;
 
-  if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
-  suppressCardClickUntil = Date.now() + 500;
-  if (elements.orderMode.value === 'random') {
-    moveCard(1);
-  } else {
-    moveCard(deltaX < 0 ? 1 : -1);
+  if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) {
+    settleCardAfterDrag();
+    return;
   }
+
+  suppressCardClickUntil = Date.now() + 500;
+  const swipeDirection = Math.sign(deltaX);
+  const navigationDirection = elements.orderMode.value === 'random' ? 1 : (deltaX < 0 ? 1 : -1);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    elements.card.style.transform = '';
+    elements.card.style.opacity = '';
+    moveCard(navigationDirection);
+    return;
+  }
+  const fromTransform = getComputedStyle(elements.card).transform;
+  const fromOpacity = getComputedStyle(elements.card).opacity;
+  elements.card.style.transform = '';
+  elements.card.style.opacity = '';
+  const exitAnimation = elements.card.animate(
+    [
+      { transform: fromTransform, opacity: fromOpacity },
+      { transform: `translateX(${swipeDirection * 86}px) rotate(${swipeDirection * 2}deg)`, opacity: 0.68 },
+    ],
+    { duration: 145, easing: 'ease-in' },
+  );
+  exitAnimation.onfinish = () => {
+    moveCard(navigationDirection);
+    elements.card.animate(
+      [
+        { transform: `translateX(${-swipeDirection * 34}px) rotate(${-swipeDirection}deg)`, opacity: 0.78 },
+        { transform: 'none', opacity: 1 },
+      ],
+      { duration: 190, easing: 'ease-out' },
+    );
+  };
 });
 
 elements.card.addEventListener('pointercancel', () => {
   swipeStart = null;
+  settleCardAfterDrag();
 });
 
 elements.card.addEventListener('click', (event) => {
