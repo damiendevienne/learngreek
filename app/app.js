@@ -28,6 +28,8 @@ let allPosition = 0;
 let randomWordIndex = 0;
 let displayedWordIndex = 0;
 let shownSide = 'recto';
+let swipeStart = null;
+let suppressCardClickUntil = 0;
 
 function parseCsvLine(line) {
   const fields = [];
@@ -138,7 +140,36 @@ function moveCard(direction) {
   renderCard();
 }
 
-elements.card.addEventListener('click', () => {
+elements.card.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse') return;
+  swipeStart = { x: event.clientX, y: event.clientY };
+  elements.card.setPointerCapture(event.pointerId);
+});
+
+elements.card.addEventListener('pointerup', (event) => {
+  if (!swipeStart) return;
+  const deltaX = event.clientX - swipeStart.x;
+  const deltaY = event.clientY - swipeStart.y;
+  swipeStart = null;
+
+  if (Math.abs(deltaX) < 48 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
+  suppressCardClickUntil = Date.now() + 500;
+  if (elements.orderMode.value === 'random') {
+    moveCard(1);
+  } else {
+    moveCard(deltaX < 0 ? 1 : -1);
+  }
+});
+
+elements.card.addEventListener('pointercancel', () => {
+  swipeStart = null;
+});
+
+elements.card.addEventListener('click', (event) => {
+  if (Date.now() < suppressCardClickUntil) {
+    event.preventDefault();
+    return;
+  }
   if (!words.length) return;
   const fromTransform = getComputedStyle(elements.inner).transform;
   elements.inner.getAnimations().forEach((animation) => animation.cancel());
